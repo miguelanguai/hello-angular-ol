@@ -4,6 +4,7 @@ import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import { OSM } from 'ol/source';
 import {FullScreen} from 'ol/control.js';
+import { fromLonLat } from 'ol/proj';
 
 @Component({
   selector: 'app-map',
@@ -16,6 +17,9 @@ export class MapComponent {
   map!: Map;
 
   ngOnInit():void{
+    
+    const spainCoordinates = fromLonLat([-0.4361, 39.1514]); // Coordenadas de Madrid
+
     this.map = new Map({
       target: 'map',
       layers:[
@@ -24,8 +28,8 @@ export class MapComponent {
         })
       ],
       view:new View({
-        center: [0,0],
-        zoom:2
+        center: spainCoordinates,
+        zoom:14.5
       })
     });
 
