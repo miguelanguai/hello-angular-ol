@@ -1,8 +1,9 @@
 #map-content{
     text-align: center;
+    height: 1200px;
 }
 #map{
-    width: 800px;
-    height: 300px;
+    width: 90%;
+    height: 70%;
     margin: auto;
 }
