@@ -5,16 +5,11 @@ import TileLayer from 'ol/layer/Tile';
 import { OSM } from 'ol/source';
 import { FullScreen } from 'ol/control.js';
 import { fromLonLat } from 'ol/proj';
-import XYZ from 'ol/source/XYZ';
 
 import * as GeoTIFF from 'geotiff';
 
 import ImageLayer from 'ol/layer/Image';
 import ImageStatic from 'ol/source/ImageStatic';
-import { transformExtent } from 'ol/proj';
-
-import proj4 from 'proj4';
-import { register } from 'ol/proj/proj4';
 
 @Component({
   selector: 'app-map',
@@ -27,21 +22,13 @@ export class MapComponent {
   map!: Map;
 
   async ngOnInit() {
-    // Definir y registrar la proyección específica de tu archivo cea.tif
-    this.setupProjections();
+    const miCapaRasterData = await this.loadGeoTIFF('prueba6.tif');
+    const miCapa = this.createGeoTIFFLayer(miCapaRasterData);
 
-    const rasterdata = await this.loadGeoTIFF('cea.tif');
-    const geoTiffLayer = this.createGeoTIFFLayer(rasterdata);
-
-    // Coordenadas centradas en el área de tu raster (Los Angeles area)
-    const centerCoordinates = fromLonLat([-117.4743, 33.8042]);
-
-    const openStreetMapHumanitarian = new TileLayer({
-      source: new XYZ({
-        url: 'https://{a-c}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
-        attributions: '© OpenStreetMap contributors, Tiles style by Humanitarian OSM Team'
-      })
-    });
+    // Coordenadas del centro de tu imagen (convertidas de Web Mercator a geográficas)
+    // Centro en Web Mercator: (-61563.589, 4708337.439)
+    // Aproximadamente: -0.55°, 38.8° (cerca de Valencia, España)
+    const centerCoordinates = fromLonLat([-0.55, 38.8]);
 
     this.map = new Map({
       target: 'map',
@@ -49,8 +36,7 @@ export class MapComponent {
         new TileLayer({
           source: new OSM()
         }),
-        openStreetMapHumanitarian,
-        geoTiffLayer
+        miCapa
       ],
       view: new View({
         center: centerCoordinates,
@@ -59,21 +45,6 @@ export class MapComponent {
     });
 
     this.map.addControl(new FullScreen());
-  }
-
-  // Configurar la proyección específica de tu archivo
-  private setupProjections() {
-    // Opción 1: Definición original
-    proj4.defs('CUSTOM:CEA',
-      '+proj=cea +lat_ts=33.75 +lon_0=-117.333333333333 +x_0=0 +y_0=0 +datum=NAD27 +units=m +no_defs'
-    );
-
-    // Opción 2: Con transformación más precisa NAD27 -> WGS84
-    proj4.defs('CUSTOM:CEA_PRECISE',
-      '+proj=cea +lat_ts=33.75 +lon_0=-117.333333333333 +x_0=0 +y_0=0 +datum=NAD27 +towgs84=-8,160,176,0,0,0,0 +units=m +no_defs'
-    );
-
-    register(proj4);
   }
 
   async loadGeoTIFF(url: string) {
@@ -92,10 +63,10 @@ export class MapComponent {
         width,
         height,
         bbox,
-        projection: 'Lambert Cylindrical Equal Area'
+        projection: 'WGS 84 / Pseudo-Mercator (EPSG:3857)'
       });
 
-      return { raster: raster[0], width, height, bbox };
+      return { raster, width, height, bbox };
     } catch (error) {
       console.error('Error cargando GeoTIFF:', error);
       throw error;
@@ -114,73 +85,47 @@ export class MapComponent {
     const imageData = ctx.createImageData(width, height);
     const pixelData = imageData.data;
 
-    // Convertir datos del raster a RGBA (escala de grises)
-    for (let i = 0; i < raster.length; i++) {
+    // Tu archivo tiene 4 bandas (RGBA), así que usamos todas
+    for (let i = 0; i < raster[0].length; i++) {
       const pixel = i * 4;
-      const value = raster[i];
-
-      pixelData[pixel] = value;     // R
-      pixelData[pixel + 1] = value; // G
-      pixelData[pixel + 2] = value; // B
-      pixelData[pixel + 3] = 255;   // A
+      
+      // Usar las 4 bandas del GeoTIFF
+      pixelData[pixel] = raster[0][i];     // Red
+      pixelData[pixel + 1] = raster[1][i]; // Green  
+      pixelData[pixel + 2] = raster[2][i]; // Blue
+      pixelData[pixel + 3] = raster[3][i]; // Alpha
     }
 
     ctx.putImageData(imageData, 0, 0);
 
-    // Extent original en la proyección del archivo
-    const originalExtent = [bbox[0], bbox[1], bbox[2], bbox[3]];
+    // El extent ya está en EPSG:3857 (Web Mercator), NO necesita transformación
+    const extent = [bbox[0], bbox[1], bbox[2], bbox[3]];
 
-    // OPCIÓN 1: Transformación estándar
-    let transformedExtent = transformExtent(
-      originalExtent,
-      'CUSTOM:CEA',
-      'EPSG:3857'
-    );
-
-    // OPCIÓN 2: Probar con la proyección más precisa
-    // let transformedExtent = transformExtent(
-    //   originalExtent,
-    //   'CUSTOM:CEA_PRECISE',
-    //   'EPSG:3857'
-    // );
-
-    // OPCIÓN 3: Ajuste manual si sigue desplazado
-    const offsetY = -5000; // Ajustar según necesites (metros en Web Mercator)
-    transformedExtent = [
-      transformedExtent[0],
-      transformedExtent[1] + offsetY,
-      transformedExtent[2],
-      transformedExtent[3] + offsetY
-    ];
-
-    console.log('Extents:', {
-      original: originalExtent,
-      transformed: transformedExtent,
-      // Coordenadas en lat/lon para verificar
-      corners: {
-        bottomLeft: proj4('CUSTOM:CEA', 'EPSG:4326', [originalExtent[0], originalExtent[1]]),
-        topRight: proj4('CUSTOM:CEA', 'EPSG:4326', [originalExtent[2], originalExtent[3]])
-      }
+    console.log('Extent (ya en Web Mercator):', {
+      extent,
+      aproximateCenter: [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
     });
 
-    // Crear source con ImageStatic (más simple y eficiente)
+    // Crear source con ImageStatic - proyección ya coincide
     const source = new ImageStatic({
       url: canvas.toDataURL(),
-      imageExtent: transformedExtent,
-      projection: 'EPSG:3857'
+      imageExtent: extent,
+      projection: 'EPSG:3857' // Misma proyección que el mapa base
     });
 
     const layer = new ImageLayer({
       source,
-      opacity: 0.8  // Semi-transparente para ver el mapa base
+      opacity: 0.5 // Semi-transparente para ver el mapa base
     });
 
-    // Ajustar vista al extent de la imagen después de un breve delay
+    // Ajustar vista al extent de la imagen
     setTimeout(() => {
-      this.map.getView().fit(transformedExtent, {
-        padding: [50, 50, 50, 50],
-        duration: 1000
-      });
+      if (this.map) {
+        this.map.getView().fit(extent, {
+          padding: [50, 50, 50, 50],
+          duration: 1000
+        });
+      }
     }, 100);
 
     return layer;
